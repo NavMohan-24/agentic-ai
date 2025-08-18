@@ -1,3 +1,4 @@
+from curses import meta
 from unidiff import PatchSet
 from langchain_core.documents import Document
 
@@ -38,7 +39,17 @@ def create_pr_document_from_patch(patch):
     }
     
     # Create and return the single Document object
-    return Document(page_content=page_content, metadata=metadata)
+    return page_content,metadata
 
+
+if __name__ == "__main__":
+    with open('test_patch.txt','r') as file:
+          patch = file.read()
+    
+    content, metadata = create_pr_document_from_patch(patch=patch)
+
+    print(content)
+    print("\n\n")
+    print(metadata)
 
 
