@@ -1,0 +1,321 @@
+From 697eeee9e4bab468af4fbeb955b5a85191b72a48 Mon Sep 17 00:00:00 2001
+From: Mark Agib <80441909+MarkAppprogrammer@users.noreply.github.com>
+Date: Sat, 9 Aug 2025 15:53:16 -0700
+Subject: [PATCH 1/5] add multiple qubitsdelay.py
+
+---
+ qiskit/circuit/delay.py | 61 ++++++++++++++++++-----------------------
+ 1 file changed, 27 insertions(+), 34 deletions(-)
+
+diff --git a/qiskit/circuit/delay.py b/qiskit/circuit/delay.py
+index 8c82a01c1497..4447ec01b28b 100644
+--- a/qiskit/circuit/delay.py
++++ b/qiskit/circuit/delay.py
+@@ -18,39 +18,35 @@
+ from qiskit.circuit.classical import expr, types
+ from qiskit.circuit.exceptions import CircuitError
+ from qiskit.circuit.instruction import Instruction
+-from qiskit.circuit.gate import Gate
+-from qiskit.circuit import _utils
+ from qiskit.circuit.parameterexpression import ParameterExpression
+ from qiskit._accelerate.circuit import StandardInstructionType
+ 
+ 
+-@_utils.with_gate_array(np.eye(2, dtype=complex))
+ class Delay(Instruction):
+-    """Do nothing and just delay/wait/idle for a specified duration."""
++    """Do nothing and just delay/wait/idle for a specified duration.
++
++    This version supports variadic qubits (multi-qubit delay) to match
++    OpenQASM 3 semantics. All specified qubits are delayed simultaneously.
++    """
+ 
+     _standard_instruction_type = StandardInstructionType.Delay
+ 
+-    def __init__(self, duration, unit=None):
++    def __init__(self, duration, unit=None, num_qubits=1):
+         """
+         Args:
+-            duration: the length of time of the duration. If this is an
+-                :class:`~.expr.Expr`, it must be a constant expression of type
+-                :class:`~.types.Duration` and the ``unit`` parameter should be
+-                omitted (or MUST be "expr" if it is specified).
+-            unit: the unit of the duration, if ``duration`` is a numeric
+-                value. Must be ``"dt"``, an SI-prefixed seconds unit, or "expr".
+-
+-        Raises:
+-            CircuitError: A ``duration`` expression was specified with a resolved
+-                type that is not timing-based, or the ``unit`` was improperly specified.
++            duration: the length of time of the duration.
++                If this is an :class:`~.expr.Expr`, it must be a constant
++                expression of type :class:`~.types.Duration`.
++            unit: the unit of the duration (if numeric). Must be "dt" or an SI-prefixed seconds unit.
++            num_qubits: number of qubits this delay applies to (default 1).
+         """
+         duration, self._unit = self._validate_arguments(duration, unit)
+-        super().__init__("delay", 1, 0, params=[duration])
++        if num_qubits < 1:
++            raise CircuitError("Delay must apply to at least one qubit.")
++        super().__init__("delay", num_qubits, 0, params=[duration])
+ 
+     @staticmethod
+     def _validate_arguments(duration, unit):
+-        # This method is a centralization of the unit-handling logic, so used elsewhere in Qiskit
+-        # (e.g. in `BoxOp`).
+         if isinstance(duration, expr.Expr):
+             if unit is not None and unit != "expr":
+                 raise CircuitError(
+@@ -69,8 +65,6 @@ def _validate_arguments(duration, unit):
+             raise CircuitError(f"Unknown unit {unit} is specified.")
+         return duration, unit
+ 
+-    broadcast_arguments = Gate.broadcast_arguments
+-
+     def inverse(self, annotated: bool = False):
+         """Special case. Return self."""
+         return self
+@@ -97,26 +91,25 @@ def duration(self, duration):
+         self.params = [duration]
+ 
+     def to_matrix(self) -> np.ndarray:
+-        """Return a Numpy.array for the unitary matrix. This has been
+-        added to enable simulation without making delay a full Gate type.
+-
+-        Returns:
+-            np.ndarray: matrix representation.
+-        """
+-        return self.__array__(dtype=complex)
++        """Return a Numpy.array for the unitary matrix."""
++        return np.eye(2**self.num_qubits, dtype=complex)
+ 
+     def __eq__(self, other):
+         return (
+-            isinstance(other, Delay) and self.unit == other.unit and self._compare_parameters(other)
++            isinstance(other, Delay) and
++            self.unit == other.unit and
++            self.num_qubits == other.num_qubits and
++            self._compare_parameters(other)
+         )
+ 
+     def __repr__(self):
+-        """Return the official string representing the delay."""
+-        return f"{self.__class__.__name__}(duration={self.params[0]}[unit={self.unit}])"
++        return (
++            f"{self.__class__.__name__}(duration={self.params[0]}[unit={self.unit}], "
++            f"num_qubits={self.num_qubits})"
++        )
+ 
+-    # pylint: disable=too-many-return-statements
+     def validate_parameter(self, parameter):
+-        """Delay parameter (i.e. duration) must be Expr, int, float or ParameterExpression."""
++        """Delay parameter must be Expr, int, float or ParameterExpression."""
+         if isinstance(parameter, int):
+             if parameter < 0:
+                 raise CircuitError(
+@@ -142,7 +135,7 @@ def validate_parameter(self, parameter):
+             return parameter
+         elif isinstance(parameter, ParameterExpression):
+             if len(parameter.parameters) > 0:
+-                return parameter  # expression has free parameters, we cannot validate it
++                return parameter
+             if not parameter.is_real():
+                 raise CircuitError(f"Bound parameter expression is complex in delay {self.name}")
+             fval = float(parameter)
+@@ -154,6 +147,6 @@ def validate_parameter(self, parameter):
+                 if rounding_error > 1e-15:
+                     raise CircuitError("Integer parameter is required for duration in 'dt' unit.")
+                 return ival
+-            return fval  # per default assume parameters must be real when bound
++            return fval
+         else:
+             raise CircuitError(f"Invalid param type {type(parameter)} for delay {self.name}.")
+
+From 03c11ba9f1a9f4cc3a8cb4919198f1da110a13c2 Mon Sep 17 00:00:00 2001
+From: Mark Agib <80441909+MarkAppprogrammer@users.noreply.github.com>
+Date: Sat, 9 Aug 2025 17:30:50 -0700
+Subject: [PATCH 2/5] minor fixes
+
+---
+ qiskit/circuit/delay.py | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/qiskit/circuit/delay.py b/qiskit/circuit/delay.py
+index 4447ec01b28b..3fcf841c24dd 100644
+--- a/qiskit/circuit/delay.py
++++ b/qiskit/circuit/delay.py
+@@ -23,11 +23,7 @@
+ 
+ 
+ class Delay(Instruction):
+-    """Do nothing and just delay/wait/idle for a specified duration.
+-
+-    This version supports variadic qubits (multi-qubit delay) to match
+-    OpenQASM 3 semantics. All specified qubits are delayed simultaneously.
+-    """
++    """Do nothing and just delay/wait/idle for a specified duration."""
+ 
+     _standard_instruction_type = StandardInstructionType.Delay
+ 
+
+From 144fcefc862c17071b15dd59ab1cd5ba84f4ec33 Mon Sep 17 00:00:00 2001
+From: Mark Agib <80441909+MarkAppprogrammer@users.noreply.github.com>
+Date: Sun, 10 Aug 2025 18:33:27 -0700
+Subject: [PATCH 3/5] added find_bits
+
+---
+ qiskit/circuit/quantumcircuit.py | 34 ++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/qiskit/circuit/quantumcircuit.py b/qiskit/circuit/quantumcircuit.py
+index 88b09d519f5f..3a8da1da51f2 100644
+--- a/qiskit/circuit/quantumcircuit.py
++++ b/qiskit/circuit/quantumcircuit.py
+@@ -37,6 +37,7 @@
+     Any,
+     Literal,
+     overload,
++    List
+ )
+ from math import pi
+ import numpy as np
+@@ -3555,6 +3556,39 @@ def find_bit(self, bit: Bit) -> BitLocations:
+             raise CircuitError(
+                 f"Could not locate provided bit: {bit}. Has it been added to the QuantumCircuit?"
+             ) from err
++        
++    def find_bits(self, bits: Union[Iterable[Bit], Instruction, Bit]) -> List[BitLocations]:
++        """Find locations in the circuit for multiple bits or an instruction.
++
++        Args:
++            bits (Iterable[Bit] | Instruction | Bit):
++                - An iterable of Bit objects (Qubit or Clbit)
++                - An instruction, from which qubits and clbits will be taken
++                - A single Bit
++
++        Returns:
++            list[BitLocations]: A list of BitLocations in the same order as the input bits.
++        """
++
++        if hasattr(bits, "qubits") or hasattr(bits, "clbits"):
++            bits = list(getattr(bits, "qubits", [])) + list(getattr(bits, "clbits", []))
++        elif isinstance(bits, Bit):
++            bits = [bits]  
++        else:
++            bits = list(bits)  
++
++
++        results = []
++        for b in bits:
++            try:
++                results.append(self.find_bit(b))
++            except CircuitError as err:
++                raise CircuitError(
++                    f"Could not locate provided bit: {b}. "
++                    f"Has it been added to the QuantumCircuit?"
++                ) from err
++
++        return results
+ 
+     def _check_dups(self, qubits: Sequence[Qubit]) -> None:
+         """Raise exception if list of qubits contains duplicates."""
+
+From ac350dccb4a0a2f90794bb23464a24fe594a4226 Mon Sep 17 00:00:00 2001
+From: Mark Agib <80441909+MarkAppprogrammer@users.noreply.github.com>
+Date: Sun, 10 Aug 2025 20:47:14 -0700
+Subject: [PATCH 4/5] Revert "added find_bits"
+
+This reverts commit 144fcefc862c17071b15dd59ab1cd5ba84f4ec33.
+---
+ qiskit/circuit/quantumcircuit.py | 34 --------------------------------
+ 1 file changed, 34 deletions(-)
+
+diff --git a/qiskit/circuit/quantumcircuit.py b/qiskit/circuit/quantumcircuit.py
+index 3a8da1da51f2..88b09d519f5f 100644
+--- a/qiskit/circuit/quantumcircuit.py
++++ b/qiskit/circuit/quantumcircuit.py
+@@ -37,7 +37,6 @@
+     Any,
+     Literal,
+     overload,
+-    List
+ )
+ from math import pi
+ import numpy as np
+@@ -3556,39 +3555,6 @@ def find_bit(self, bit: Bit) -> BitLocations:
+             raise CircuitError(
+                 f"Could not locate provided bit: {bit}. Has it been added to the QuantumCircuit?"
+             ) from err
+-        
+-    def find_bits(self, bits: Union[Iterable[Bit], Instruction, Bit]) -> List[BitLocations]:
+-        """Find locations in the circuit for multiple bits or an instruction.
+-
+-        Args:
+-            bits (Iterable[Bit] | Instruction | Bit):
+-                - An iterable of Bit objects (Qubit or Clbit)
+-                - An instruction, from which qubits and clbits will be taken
+-                - A single Bit
+-
+-        Returns:
+-            list[BitLocations]: A list of BitLocations in the same order as the input bits.
+-        """
+-
+-        if hasattr(bits, "qubits") or hasattr(bits, "clbits"):
+-            bits = list(getattr(bits, "qubits", [])) + list(getattr(bits, "clbits", []))
+-        elif isinstance(bits, Bit):
+-            bits = [bits]  
+-        else:
+-            bits = list(bits)  
+-
+-
+-        results = []
+-        for b in bits:
+-            try:
+-                results.append(self.find_bit(b))
+-            except CircuitError as err:
+-                raise CircuitError(
+-                    f"Could not locate provided bit: {b}. "
+-                    f"Has it been added to the QuantumCircuit?"
+-                ) from err
+-
+-        return results
+ 
+     def _check_dups(self, qubits: Sequence[Qubit]) -> None:
+         """Raise exception if list of qubits contains duplicates."""
+
+From c447934c9939fb653624fe06935d4ab403451e43 Mon Sep 17 00:00:00 2001
+From: Mark Agib <80441909+MarkAppprogrammer@users.noreply.github.com>
+Date: Thu, 14 Aug 2025 15:45:54 -0700
+Subject: [PATCH 5/5] fixes
+
+---
+ qiskit/circuit/delay.py | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/qiskit/circuit/delay.py b/qiskit/circuit/delay.py
+index 3fcf841c24dd..30fa644448fd 100644
+--- a/qiskit/circuit/delay.py
++++ b/qiskit/circuit/delay.py
+@@ -43,6 +43,8 @@ def __init__(self, duration, unit=None, num_qubits=1):
+ 
+     @staticmethod
+     def _validate_arguments(duration, unit):
++        # This method is a centralization of the unit-handling logic, so used elsewhere in Qiskit
++        # (e.g. in `BoxOp`).
+         if isinstance(duration, expr.Expr):
+             if unit is not None and unit != "expr":
+                 raise CircuitError(
+@@ -87,8 +89,12 @@ def duration(self, duration):
+         self.params = [duration]
+ 
+     def to_matrix(self) -> np.ndarray:
+-        """Return a Numpy.array for the unitary matrix."""
+-        return np.eye(2**self.num_qubits, dtype=complex)
++        """Return a Numpy.array for the unitary matrix. This has been
++        added to enable simulation without making delay a full Gate type.
++        Returns:
++            np.ndarray: matrix representation.
++        """
++        return self.__array__(dtype=complex)
+ 
+     def __eq__(self, other):
+         return ()

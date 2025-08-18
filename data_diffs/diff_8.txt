@@ -1,0 +1,66 @@
+From f55b18d84071049b3bb285f0bba970b5f03e014e Mon Sep 17 00:00:00 2001
+From: hippown <hippowiseman789@gmail.com>
+Date: Wed, 2 Jul 2025 17:04:37 +0000
+Subject: [PATCH 1/2] Add test for ConsolidateBlocks with kak_basis_gate
+
+---
+ .../python/transpiler/test_consolidate_blocks.py | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/test/python/transpiler/test_consolidate_blocks.py b/test/python/transpiler/test_consolidate_blocks.py
+index b17fe4d6c4c5..9999fb544909 100644
+--- a/test/python/transpiler/test_consolidate_blocks.py
++++ b/test/python/transpiler/test_consolidate_blocks.py
+@@ -36,6 +36,11 @@
+ from qiskit.transpiler import PassManager, Target, generate_preset_pass_manager
+ from qiskit.transpiler.passes import ConsolidateBlocks, Collect1qRuns, Collect2qBlocks
+ from test import QiskitTestCase  # pylint: disable=wrong-import-order
++import unittest
++from qiskit import QuantumCircuit
++from qiskit.transpiler import PassManager
++from qiskit.transpiler.passes import ConsolidateBlocks
++from qiskit.circuit.library import CXGate
+ 
+ 
+ @ddt
+@@ -691,3 +696,14 @@ def test_rzz_collection(self, basis_gate):
+             expected = QuantumCircuit(2)
+             expected.unitary(np.asarray(RZZGate(angle)), [0, 1])
+             self.assertEqual(res, expected)
++
++    def test_consolidate_with_kak_basis_gate(self):
++        """Test that ConsolidateBlocks works with a kak_basis_gate."""
++
++        kak_basis_gate = CXGate()
++        consolidate_pass = ConsolidateBlocks(kak_basis_gate=kak_basis_gate)
++        qc = QuantumCircuit(2)
++        qc.cx(0, 1)
++        dag = circuit_to_dag(qc)
++        res = consolidate_pass.run(dag)
++        self.assertEqual(res.count_ops().get('cx', 0), 1)
+
+From b3c46fcce234bbf15a7ad04272f5ed18c1531816 Mon Sep 17 00:00:00 2001
+From: hippown <hippowiseman789@gmail.com>
+Date: Wed, 2 Jul 2025 17:05:48 +0000
+Subject: [PATCH 2/2] Remove unused imports in test_consolidate_blocks.py
+
+---
+ test/python/transpiler/test_consolidate_blocks.py | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/test/python/transpiler/test_consolidate_blocks.py b/test/python/transpiler/test_consolidate_blocks.py
+index 9999fb544909..992a278cc975 100644
+--- a/test/python/transpiler/test_consolidate_blocks.py
++++ b/test/python/transpiler/test_consolidate_blocks.py
+@@ -36,11 +36,6 @@
+ from qiskit.transpiler import PassManager, Target, generate_preset_pass_manager
+ from qiskit.transpiler.passes import ConsolidateBlocks, Collect1qRuns, Collect2qBlocks
+ from test import QiskitTestCase  # pylint: disable=wrong-import-order
+-import unittest
+-from qiskit import QuantumCircuit
+-from qiskit.transpiler import PassManager
+-from qiskit.transpiler.passes import ConsolidateBlocks
+-from qiskit.circuit.library import CXGate
+ 
+ 
+ @ddt

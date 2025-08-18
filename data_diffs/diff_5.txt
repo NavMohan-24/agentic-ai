@@ -1,0 +1,71 @@
+From 8b9bd60ffbc8c1918a518181938be28311cbc607 Mon Sep 17 00:00:00 2001
+From: Jeremy Kruid <jdkruid@gmail.com>
+Date: Tue, 12 Aug 2025 12:09:26 -0500
+Subject: [PATCH] Add is_empty to TimingConstraints
+
+---
+ .../generate_preset_pass_manager.py             |  3 ++-
+ qiskit/transpiler/timing_constraints.py         |  8 ++++++++
+ .../test_timing_constraint_is_empty.py          | 17 +++++++++++++++++
+ 3 files changed, 27 insertions(+), 1 deletion(-)
+ create mode 100644 test/python/transpiler/test_timing_constraint_is_empty.py
+
+diff --git a/qiskit/transpiler/preset_passmanagers/generate_preset_pass_manager.py b/qiskit/transpiler/preset_passmanagers/generate_preset_pass_manager.py
+index c1e831fde8e8..56782ba8293a 100644
+--- a/qiskit/transpiler/preset_passmanagers/generate_preset_pass_manager.py
++++ b/qiskit/transpiler/preset_passmanagers/generate_preset_pass_manager.py
+@@ -263,13 +263,14 @@ def generate_preset_pass_manager(
+                 )
+ 
+     # Update loose constraints to populate pm options
++    # Added the new is_empty method to the TimingConstraints class
+     if coupling_map is None:
+         coupling_map = target.build_coupling_map()
+     if basis_gates is None and len(target.operation_names) > 0:
+         basis_gates = target.operation_names
+     if instruction_durations is None:
+         instruction_durations = target.durations()
+-    if timing_constraints is None:
++    if timing_constraints is None or timing_constraints.is_empty():
+         timing_constraints = target.timing_constraints()
+ 
+     # Parse non-target dependent pm options
+diff --git a/qiskit/transpiler/timing_constraints.py b/qiskit/transpiler/timing_constraints.py
+index 88157058e2af..4320866ed256 100644
+--- a/qiskit/transpiler/timing_constraints.py
++++ b/qiskit/transpiler/timing_constraints.py
+@@ -57,3 +57,11 @@ def __init__(
+                 raise TranspilerError(
+                     f"Timing constraint {key} should be nonzero integer. Not {value}."
+                 )
++    
++    # Return True if the TimingConstraints object is None or empty
++    def is_empty(self):
++        return self.granularity == 1 and self.min_length == 1 and self.pulse_alignment == 1 and self.acquire_alignment == 1
++    
++    # Return True if the TimingConstraints object is not None or empty
++    def is_not_empty(self):
++        return not self.is_none_or_empty()
+diff --git a/test/python/transpiler/test_timing_constraint_is_empty.py b/test/python/transpiler/test_timing_constraint_is_empty.py
+new file mode 100644
+index 000000000000..6428a9a369b1
+--- /dev/null
++++ b/test/python/transpiler/test_timing_constraint_is_empty.py
+@@ -0,0 +1,17 @@
++import unittest
++from qiskit.transpiler.timing_constraints import TimingConstraints
++
++#Validate the is_empty method of the TimingConstraints class
++class TestTimingConstraintIsEmpty(unittest.TestCase):
++    def test_is_empty(self):
++        timing_constraints = TimingConstraints()
++        print(timing_constraints.is_empty())
++        self.assertTrue(timing_constraints.is_empty())
++
++    def test_is_not_empty(self):
++        timing_constraints = TimingConstraints(acquire_alignment=2)
++        print(timing_constraints.is_empty())
++        self.assertFalse(timing_constraints.is_empty())
++
++if __name__ == "__main__":
++    unittest.main()

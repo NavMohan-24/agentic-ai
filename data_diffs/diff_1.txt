@@ -1,0 +1,163 @@
+From f8421f748e3340089bfbfdd9d3da6b98d598d8de Mon Sep 17 00:00:00 2001
+From: Soumyadip Sarkar <soumya.papanvk18@gmail.com>
+Date: Fri, 15 Aug 2025 05:50:12 +0530
+Subject: [PATCH 1/3] Deep copy BoxOp bodies when copying circuits
+
+---
+ qiskit/circuit/instruction.py            |  2 +-
+ test/python/circuit/test_control_flow.py | 18 ++++++++++++++++++
+ 2 files changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/qiskit/circuit/instruction.py b/qiskit/circuit/instruction.py
+index d0c345487ef4..c4a6a55ad56c 100644
+--- a/qiskit/circuit/instruction.py
++++ b/qiskit/circuit/instruction.py
+@@ -447,7 +447,7 @@ def copy(self, name=None):
+ 
+     def __deepcopy__(self, memo=None):
+         cpy = copy.copy(self)
+-        cpy._params = copy.copy(self._params)
++        cpy._params = copy.deepcopy(self._params, memo)
+         if self._definition:
+             cpy._definition = copy.deepcopy(self._definition, memo)
+         return cpy
+diff --git a/test/python/circuit/test_control_flow.py b/test/python/circuit/test_control_flow.py
+index f7d423dc62f0..91835e0b9f0b 100644
+--- a/test/python/circuit/test_control_flow.py
++++ b/test/python/circuit/test_control_flow.py
+@@ -656,6 +656,24 @@ def test_box_equal_respects_all_items(self):
+         self.assertNotEqual(BoxOp(body_a, duration=100.0, unit="ns"), base)
+         self.assertNotEqual(BoxOp(body_a, duration=300.0, unit="ms"), base)
+ 
++    def test_box_copy_is_deep(self):
++        """Copying a circuit with a box should deep copy the body."""
++        qc = QuantumCircuit(2)
++        with qc.box():
++            qc.cx(0, 1)
++
++        qc_copy = qc.copy()
++
++        self.assertIsNot(
++            qc[0].operation.blocks[0],
++            qc_copy[0].operation.blocks[0],
++        )
++
++        qc_copy[0].operation.blocks[0].cx(0, 1)
++
++        self.assertEqual(len(qc[0].operation.blocks[0].data), 1)
++        self.assertEqual(len(qc_copy[0].operation.blocks[0].data), 2)
++
+ 
+ @ddt
+ class TestAddingControlFlowOperations(QiskitTestCase):
+
+From 99667c99e57504029c958089a3636f3f0bf6e69c Mon Sep 17 00:00:00 2001
+From: Soumyadip Sarkar <soumya.papanvk18@gmail.com>
+Date: Fri, 15 Aug 2025 06:34:16 +0530
+Subject: [PATCH 2/3] Deep copy BoxOp bodies when copying circuits
+
+---
+ qiskit/circuit/instruction.py            | 17 +++++++++++++++--
+ test/python/circuit/test_control_flow.py | 13 +++++++++++++
+ 2 files changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/qiskit/circuit/instruction.py b/qiskit/circuit/instruction.py
+index c4a6a55ad56c..3b9977ed7677 100644
+--- a/qiskit/circuit/instruction.py
++++ b/qiskit/circuit/instruction.py
+@@ -441,15 +441,28 @@ def copy(self, name=None):
+         """
+         cpy = self.__deepcopy__()
+ 
+-        if name:
++        if name is not None:
+             cpy.name = name
+         return cpy
+ 
+     def __deepcopy__(self, memo=None):
++        if memo is None:
++            memo = {}
++        
++        obj_id = id(self)
++        if obj_id in memo:
++            return memo[obj_id]
++        
+         cpy = copy.copy(self)
++        memo[obj_id] = cpy
++
+         cpy._params = copy.deepcopy(self._params, memo)
+-        if self._definition:
++        
++        if getattr(self, "_definition", None) is not None:
+             cpy._definition = copy.deepcopy(self._definition, memo)
++        else:
++            cpy._definition = None
++
+         return cpy
+ 
+     def broadcast_arguments(self, qargs, cargs):
+diff --git a/test/python/circuit/test_control_flow.py b/test/python/circuit/test_control_flow.py
+index 91835e0b9f0b..3f75fb06f07b 100644
+--- a/test/python/circuit/test_control_flow.py
++++ b/test/python/circuit/test_control_flow.py
+@@ -12,6 +12,7 @@
+ 
+ """Test operations on control flow for dynamic QuantumCircuits."""
+ 
++import copy
+ import math
+ 
+ from ddt import ddt, data, unpack, idata
+@@ -674,6 +675,18 @@ def test_box_copy_is_deep(self):
+         self.assertEqual(len(qc[0].operation.blocks[0].data), 1)
+         self.assertEqual(len(qc_copy[0].operation.blocks[0].data), 2)
+ 
++        qc_deepcopy = copy.deepcopy(qc)
++
++        self.assertIsNot(
++            qc[0].operation.blocks[0],
++            qc_deepcopy[0].operation.blocks[0],
++        )
++
++        qc_deepcopy[0].operation.blocks[0].cx(0, 1)
++
++        self.assertEqual(len(qc[0].operation.blocks[0].data), 1)
++        self.assertEqual(len(qc_deepcopy[0].operation.blocks[0].data), 2)
++
+ 
+ @ddt
+ class TestAddingControlFlowOperations(QiskitTestCase):
+
+From 3fe4d01e4d43841f2f176930ac03a554e2a9a5b5 Mon Sep 17 00:00:00 2001
+From: Soumyadip Sarkar <soumya.papanvk18@gmail.com>
+Date: Fri, 15 Aug 2025 06:54:32 +0530
+Subject: [PATCH 3/3] Deep copy BoxOp bodies when copying circuits
+
+---
+ qiskit/circuit/instruction.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/qiskit/circuit/instruction.py b/qiskit/circuit/instruction.py
+index 3b9977ed7677..7aa221baeb04 100644
+--- a/qiskit/circuit/instruction.py
++++ b/qiskit/circuit/instruction.py
+@@ -448,16 +448,16 @@ def copy(self, name=None):
+     def __deepcopy__(self, memo=None):
+         if memo is None:
+             memo = {}
+-        
++
+         obj_id = id(self)
+         if obj_id in memo:
+             return memo[obj_id]
+-        
++
+         cpy = copy.copy(self)
+         memo[obj_id] = cpy
+ 
+         cpy._params = copy.deepcopy(self._params, memo)
+-        
++
+         if getattr(self, "_definition", None) is not None:
+             cpy._definition = copy.deepcopy(self._definition, memo)
+         else:

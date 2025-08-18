@@ -1,0 +1,63 @@
+From c2b7f7a00e9e8dcda5bb7941187a82bd311e2fef Mon Sep 17 00:00:00 2001
+From: LittlebullGit <derekpeng09@gmail.com>
+Date: Sun, 29 Jun 2025 22:45:08 -0400
+Subject: [PATCH] Fix SparsePauliOp.is_unitary() to respect input tolerance
+ values
+
+Fixes #14107 by passing the tolerance parameters from is_unitary() to simplify().
+This ensures that the tolerance values are properly respected when checking
+if an operator is unitary.
+
+The change includes a test case that verifies the fix works as expected.
+---
+ .../operators/symplectic/sparse_pauli_op.py   |  2 +-
+ .../symplectic/test_sparse_pauli_op.py        | 23 +++++++++++++++++++
+ 2 files changed, 24 insertions(+), 1 deletion(-)
+
+diff --git a/qiskit/quantum_info/operators/symplectic/sparse_pauli_op.py b/qiskit/quantum_info/operators/symplectic/sparse_pauli_op.py
+index 4885dd8641f2..6c3f43687e07 100644
+--- a/qiskit/quantum_info/operators/symplectic/sparse_pauli_op.py
++++ b/qiskit/quantum_info/operators/symplectic/sparse_pauli_op.py
+@@ -449,7 +449,7 @@ def is_unitary(self, atol: float | None = None, rtol: float | None = None) -> bo
+             rtol = self.rtol
+ 
+         # Compose with adjoint
+-        val = self.compose(self.adjoint()).simplify()
++        val = self.compose(self.adjoint()).simplify(atol=atol, rtol=rtol)
+         # See if the result is an identity
+         return (
+             val.size == 1
+diff --git a/test/python/quantum_info/operators/symplectic/test_sparse_pauli_op.py b/test/python/quantum_info/operators/symplectic/test_sparse_pauli_op.py
+index feebbdfd448a..be870986d6aa 100644
+--- a/test/python/quantum_info/operators/symplectic/test_sparse_pauli_op.py
++++ b/test/python/quantum_info/operators/symplectic/test_sparse_pauli_op.py
+@@ -1342,6 +1342,29 @@ def test_apply_layout_zero_qubit(self, layout):
+             res = op.apply_layout(layout=layout, num_qubits=5)
+             self.assertEqual(SparsePauliOp.from_list([("IIIII", 1), ("IIIII", 2)]), res)
+ 
++    def test_is_unitary_tolerance(self):
++        """Test that is_unitary respects the input tolerance values."""
++        # Create a matrix that's approximately unitary but not exactly
++        a = np.array([
++            [-9.9801135e-01 + 6.3036762e-02j, 5.6710692e-06 + 8.1099635e-05j],
++            [5.6710610e-06 + 8.1099643e-05j, -9.9707150e-01 + 7.6473624e-02j]
++        ])
++        
++        # Verify the matrix is approximately unitary
++        identity = a @ a.conj().T
++        np.testing.assert_allclose(identity, np.eye(2), atol=1e-5, rtol=1e-3)
++        
++        # Create SparsePauliOp from the matrix
++        op = SparsePauliOp.from_operator(a)
++        
++        # Test with tolerance that should pass
++        self.assertTrue(op.is_unitary(atol=1e-5, rtol=1e-3),
++                       "Operator should be considered unitary with given tolerance")
++        
++        # Test with very small tolerance that should fail
++        self.assertFalse(op.is_unitary(atol=1e-10, rtol=1e-10),
++                        "Operator should not be considered unitary with very small tolerance")
++
+ 
+ if __name__ == "__main__":
+     unittest.main()

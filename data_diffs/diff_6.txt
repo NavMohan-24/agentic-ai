@@ -1,0 +1,245 @@
+From 7f76333abd384aa28550f16f9504c6331f0797de Mon Sep 17 00:00:00 2001
+From: Aqil-Ahmad <aqahmad.bscs23seecs@seecs.edu.pk>
+Date: Sat, 9 Aug 2025 18:49:28 +0500
+Subject: [PATCH 1/2] Fix: ParameterExpression.gradient() to return numeric
+ values for constants
+
+---
+ .../src/parameter/parameter_expression.rs     | 24 ++++++++++++++++---
+ 1 file changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/crates/circuit/src/parameter/parameter_expression.rs b/crates/circuit/src/parameter/parameter_expression.rs
+index 16939c3978cd..d0968c5c7362 100644
+--- a/crates/circuit/src/parameter/parameter_expression.rs
++++ b/crates/circuit/src/parameter/parameter_expression.rs
+@@ -885,11 +885,29 @@ impl PyParameterExpression {
+     ///     param: The parameter with respect to which the derivative is calculated.
+     ///
+     /// Returns:
+-    ///     The derivative.
+-    pub fn gradient(&self, param: &Bound<'_, PyAny>) -> PyResult<Self> {
++    ///     The derivative as either a constant numeric value or a symbolic
++    ///     :class:`.ParameterExpression`.
++    pub fn gradient(&self, param: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+         let symbol = symbol_from_py_parameter(param)?;
+         let d_expr = self.inner.derivative(&symbol)?;
+-        Ok(d_expr.into())
++    
++        if d_expr.expr.parameters().is_empty() {
++            if let Some(val) = d_expr.expr.eval(true) {
++                match val {
++                    Value::Real(r) => Ok(r.into_py_any(param.py())?),
++                    Value::Int(i) => Ok(i.into_py_any(param.py())?),
++                    Value::Complex(c) => Ok(c.into_py_any(param.py())?),
++                }
++            } else {
++                Ok(Py::new(param.py(), PyParameterExpression::from(d_expr))?
++                    .into_any()
++                    .into())
++            }
++        } else {
++            Ok(Py::new(param.py(), PyParameterExpression::from(d_expr))?
++                .into_any()
++                .into())
++        }
+     }
+ 
+     /// Return all values in this equation.
+
+From 8e60a8bd2cb9a797cbd347643dd6644b409d3d34 Mon Sep 17 00:00:00 2001
+From: Aqil-Ahmad <aqahmad.bscs23seecs@seecs.edu.pk>
+Date: Tue, 12 Aug 2025 19:14:46 +0500
+Subject: [PATCH 2/2] Add test and fix some issues(lint etc)
+
+---
+ .../src/parameter/parameter_expression.rs     |  25 +---
+ .../circuit/test_parameter_expression.py      | 140 ++++++++++++++++++
+ 2 files changed, 148 insertions(+), 17 deletions(-)
+
+diff --git a/crates/circuit/src/parameter/parameter_expression.rs b/crates/circuit/src/parameter/parameter_expression.rs
+index d0968c5c7362..612723eae39b 100644
+--- a/crates/circuit/src/parameter/parameter_expression.rs
++++ b/crates/circuit/src/parameter/parameter_expression.rs
+@@ -890,23 +890,14 @@ impl PyParameterExpression {
+     pub fn gradient(&self, param: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+         let symbol = symbol_from_py_parameter(param)?;
+         let d_expr = self.inner.derivative(&symbol)?;
+-    
+-        if d_expr.expr.parameters().is_empty() {
+-            if let Some(val) = d_expr.expr.eval(true) {
+-                match val {
+-                    Value::Real(r) => Ok(r.into_py_any(param.py())?),
+-                    Value::Int(i) => Ok(i.into_py_any(param.py())?),
+-                    Value::Complex(c) => Ok(c.into_py_any(param.py())?),
+-                }
+-            } else {
+-                Ok(Py::new(param.py(), PyParameterExpression::from(d_expr))?
+-                    .into_any()
+-                    .into())
+-            }
+-        } else {
+-            Ok(Py::new(param.py(), PyParameterExpression::from(d_expr))?
+-                .into_any()
+-                .into())
++
++        match d_expr.try_to_value(true) {
++            Ok(val) => match val {
++                Value::Real(r) => Ok(r.into_py_any(param.py())?),
++                Value::Int(i) => Ok(i.into_py_any(param.py())?),
++                Value::Complex(c) => Ok(c.into_py_any(param.py())?),
++            },
++            Err(_) => Ok(Py::new(param.py(), PyParameterExpression::from(d_expr))?.into_any()),
+         }
+     }
+ 
+diff --git a/test/python/circuit/test_parameter_expression.py b/test/python/circuit/test_parameter_expression.py
+index f0909bead5f1..bf00c2a33e7a 100644
+--- a/test/python/circuit/test_parameter_expression.py
++++ b/test/python/circuit/test_parameter_expression.py
+@@ -467,6 +467,146 @@ def test_sign_derivative_errors(self):
+         with self.assertRaises(RuntimeError):
+             _ = expr.gradient(x)
+ 
++    def test_gradient_constant_derivatives(self):
++        """Test gradient method returns numeric values for constant derivatives."""
++        x = Parameter("x")
++        y = Parameter("y")
++
++        test_cases = [
++            (x, x, 1.0),
++            (x + 0, x, 1.0),
++            (0 * x, x, 0.0),
++            (x * 0, x, 0.0),
++            (x - x, x, 0.0),
++            (x / x, x, 0.0),
++            (x**0, x, 0),
++            (5 + x - x, x, 0.0),
++            (x * 2 - x - x, x, 0.0),
++            (x + y - x, x, 0.0),
++        ]
++
++        for expr, param, expected in test_cases:
++            with self.subTest(expr=str(expr), param=str(param)):
++                result = expr.gradient(param)
++                self.assertIsInstance(result, (int, float, complex))
++                self.assertEqual(result, expected)
++
++    def test_gradient_symbolic_derivatives(self):
++        """Test gradient method returns symbolic expressions for non-constant derivatives."""
++        x = Parameter("x")
++        y = Parameter("y")
++
++        test_cases = [
++            (x * x, x, "2*x"),
++            (x * y, x, "y"),
++            (x**2, x, "2*x**1"),
++            (x**3, x, "3*x**2"),
++        ]
++
++        for expr, param, expected_str in test_cases:
++            with self.subTest(expr=str(expr), param=str(param)):
++                result = expr.gradient(param)
++                self.assertIsInstance(result, ParameterExpression)
++                self.assertEqual(str(result), expected_str)
++
++    def test_gradient_mixed_expressions(self):
++        """Test gradient method with complex mixed expressions."""
++        x = Parameter("x")
++        y = Parameter("y")
++        z = Parameter("z")
++
++        expr = (x * x + y) * z
++
++        dx = expr.gradient(x)
++        dy = expr.gradient(y)
++        dz = expr.gradient(z)
++
++        self.assertIsInstance(dx, ParameterExpression)
++        self.assertEqual(str(dx), "2*x*z")
++
++        self.assertIsInstance(dy, ParameterExpression)
++        self.assertEqual(str(dy), "z")
++
++        self.assertIsInstance(dz, ParameterExpression)
++        self.assertEqual(str(dz), "y + x*x")
++
++    def test_gradient_trigonometric_functions(self):
++        """Test gradient method with trigonometric functions."""
++        x = Parameter("x")
++
++        test_cases = [
++            (x.sin(), x, "cos(x)"),
++            (x.cos(), x, "-sin(x)"),
++            (x.tan(), x, "1/cos(x)/cos(x)"),
++            (x.exp(), x, "exp(x)"),
++            (x.log(), x, "1/x"),
++        ]
++
++        for expr, param, expected_str in test_cases:
++            with self.subTest(expr=str(expr), param=str(param)):
++                result = expr.gradient(param)
++                self.assertIsInstance(result, ParameterExpression)
++                self.assertEqual(str(result), expected_str)
++
++    def test_gradient_composition(self):
++        """Test gradient method with function composition."""
++        x = Parameter("x")
++
++        expr = (x * x).sin()
++        result = expr.gradient(x)
++
++        self.assertIsInstance(result, ParameterExpression)
++        self.assertIn("cos", str(result))
++        self.assertIn("2*x", str(result))
++
++    def test_gradient_return_types(self):
++        """Test that gradient method returns correct types for different scenarios."""
++        x = Parameter("x")
++        y = Parameter("y")
++
++        const_expr = x - x
++        result = const_expr.gradient(x)
++        self.assertIsInstance(result, (int, float, complex))
++        self.assertEqual(result, 0.0)
++
++        symbolic_expr = x * x
++        result = symbolic_expr.gradient(x)
++        self.assertIsInstance(result, ParameterExpression)
++
++        mixed_expr = x * y
++        result = mixed_expr.gradient(x)
++        self.assertIsInstance(result, ParameterExpression)
++
++    def test_gradient_edge_cases(self):
++        """Test gradient method with edge cases."""
++        x = Parameter("x")
++
++        zero_expr = x * 0
++        result = zero_expr.gradient(x)
++        self.assertEqual(result, 0.0)
++
++        identity_expr = x + 0
++        result = identity_expr.gradient(x)
++        self.assertEqual(result, 1.0)
++
++        const_expr = 5 + x - x
++        result = const_expr.gradient(x)
++        self.assertEqual(result, 0.0)
++
++    def test_gradient_parameter_vectors(self):
++        """Test gradient method with parameter vector elements."""
++        vec = ParameterVector("vec", 3)
++        x = Parameter("x")
++
++        expr = vec[0] + vec[1] * x
++        result = expr.gradient(x)
++
++        self.assertIsInstance(result, ParameterExpression)
++        self.assertEqual(str(result), "vec[1]")
++
++        result = expr.gradient(vec[0])
++        self.assertEqual(result, 1.0)
++
+     @unittest.skipUnless(HAS_SYMPY, "Sympy is required for this test")
+     def test_sympify_all_ops(self):
+         """Test the sympify function works for all the supported operations."""
