@@ -110,7 +110,17 @@ def get_prs_for_release(owner, repo, token):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
     
+def get_pr_by_number(owner, repo, pr_number, token):
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/vnd.github.v3+json' # This is the default format for getting PR details
+    }
     
+    response = requests.get(url, headers=headers)
+    response.raise_for_status() # Raises an exception for bad status codes
+    
+    return response.json()    
 
 
 
