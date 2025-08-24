@@ -70,6 +70,19 @@ def get_prs_for_commit(owner, repo, commit_sha, token):
     response.raise_for_status()
     return response.json()
 
+def get_pr_by_number(owner, repo, pr_number, token):
+    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+    headers = {
+        'Authorization': f'Bearer {token}',
+        'Accept': 'application/vnd.github.v3+json' # This is the default format for getting PR details
+    }
+    
+    response = requests.get(url, headers=headers)
+    response.raise_for_status() # Raises an exception for bad status codes
+    
+    return response.json()    
+
+
 def get_prs_for_release(owner, repo, token):
     """
     Main function to orchestrate the process.
@@ -90,18 +103,15 @@ def get_prs_for_release(owner, repo, token):
         
         all_prs = set() # Use a set to avoid duplicates
 
-        # Step 3: Find PRs for each commit
         for commit in commits:
             commit_sha = commit['sha']
             prs_for_commit = get_prs_for_commit(owner, repo, commit_sha, token)
             for pr in prs_for_commit:
-                all_prs.add((pr['number'], pr['title']))
+                all_prs.add(pr['number']) #, pr['title']))
         
         if all_prs:
-            print("\n--- Associated Pull Requests ---")
-            for pr_number, pr_title in sorted(list(all_prs)):
-                print(f"  - PR #{pr_number}: {pr_title}")
-            return all_prs
+            responses = [get_pr_by_number(owner,repo, pr_number,token) for pr_number in all_prs]
+            return responses,latest_tag
         else:
             print("\nNo associated pull requests found.")
 
@@ -110,17 +120,6 @@ def get_prs_for_release(owner, repo, token):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
     
-def get_pr_by_number(owner, repo, pr_number, token):
-    url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Accept': 'application/vnd.github.v3+json' # This is the default format for getting PR details
-    }
-    
-    response = requests.get(url, headers=headers)
-    response.raise_for_status() # Raises an exception for bad status codes
-    
-    return response.json()    
 
 
 
