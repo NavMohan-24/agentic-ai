@@ -9,10 +9,17 @@ import os
 
 def ingest_prs_to_db(owner: str, repo: str, token: str):
 
+    """
+    Function to ingest data to chroma DB.
+    
+    Function needs repo details (owner, repo name) as input,
+    returns Langchain Document containing details associated with
+    all the PRs that merged during the latest release of repo.
+    """
+
     embeddings = OllamaEmbeddings(model='mxbai-embed-large')
     db_location = f"./chroma_db_{owner}_{repo}"
-    
-    documents = []
+
     ids = []
     add_document = not os.path.exists(db_location)
 
@@ -31,4 +38,14 @@ def ingest_prs_to_db(owner: str, repo: str, token: str):
     
     return vector_store
 
+if __name__ == "__main__":
+    owner = "Qiskit"
+    repo = "qiskit-addon-aqc-tensor"
+    
+    with open("token.pat",'r') as file:
+        token = file.read()
+    
+    vector_store = ingest_prs_to_db(owner,repo,token)
 
+    if vector_store:
+        print('Completed')
