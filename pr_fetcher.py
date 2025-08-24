@@ -22,7 +22,11 @@ def get_previous_release_info(owner, repo, token):
     releases = response.json()
     
     # Filter out draft and prerelease versions if necessary
-    published_releases = [r for r in releases if not r.get('draft') and not r.get('prerelease')]
+    published_releases = sorted(
+    (r for r in releases if not r.get('draft') and not r.get('prerelease')),
+    key=lambda r: r['tag_name'],
+    reverse=True  # latest first 
+    )
     
     if len(published_releases) < 2:
         # If there's only one release, compare to the default branch head
@@ -119,12 +123,13 @@ def get_prs_for_release(owner, repo, token):
         print(f"An API error occurred: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-    
-
 
 
 if __name__ == "__main__":
-    REPO_OWNER = "Qiskit"
-    REPO_NAME = "qiskit-addon-aqc-tensor"
-    GITHUB_TOKEN = ''
-    get_prs_for_release(REPO_OWNER, REPO_NAME, GITHUB_TOKEN)
+
+    owner = "Qiskit"
+    repo = "qiskit-addon-aqc-tensor"
+    with open("token.pat","r") as file:
+        token = file.read()
+    response = get_prs_for_release(owner, repo, token)
+   
